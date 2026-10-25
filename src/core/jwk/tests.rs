@@ -11,11 +11,12 @@ use crate::jwt::tests::{
 use crate::verification::SignatureVerificationError;
 use crate::{JsonWebKey, JsonWebKeyId, JsonWebTokenAlgorithm, PrivateSigningKey, SigningError};
 
+use std::convert::Infallible;
+
 use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
-use rand::rngs::mock::StepRng;
-use rand::{CryptoRng, RngCore};
-use rsa::rand_core;
+use rsa::rand_core::utils::fill_bytes_via_next_word;
+use rsa::rand_core::{TryCryptoRng, TryRng};
 
 #[test]
 fn test_core_jwk_deserialization_rsa() {
@@ -730,24 +731,28 @@ fn expect_rsa_sig(
     public_key.verify_signature(alg, message, &sig).unwrap();
 }
 
+/// Test RNG yielding a constant stream of `next_u64` values, equivalent to
+/// `rand` 0.8's `StepRng::new(value, 0)`.
 #[derive(Clone)]
-struct TestRng(StepRng);
+struct TestRng(u64);
 
-impl CryptoRng for TestRng {}
-impl RngCore for TestRng {
-    fn next_u32(&mut self) -> u32 {
-        self.0.next_u32()
+impl TryRng for TestRng {
+    type Error = Infallible;
+
+    fn try_next_u32(&mut self) -> Result<u32, Infallible> {
+        Ok(self.0 as u32)
     }
-    fn next_u64(&mut self) -> u64 {
-        self.0.next_u64()
+
+    fn try_next_u64(&mut self) -> Result<u64, Infallible> {
+        Ok(self.0)
     }
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
-        self.0.fill_bytes(dest)
-    }
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
-        self.0.try_fill_bytes(dest)
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Infallible> {
+        let value = self.0;
+        fill_bytes_via_next_word(dest, move || Ok(value))
     }
 }
+impl TryCryptoRng for TestRng {}
 
 #[test]
 fn test_ed_signing() {
@@ -795,7 +800,7 @@ fn test_rsa_signing() {
     let private_key = CoreRsaPrivateSigningKey::from_pem_internal(
         TEST_RSA_KEY,
         // Constant salt used for PSS test vectors below.
-        Box::new(TestRng(StepRng::new(127, 0))),
+        Box::new(TestRng(127)),
         Some(JsonWebKeyId::new("test_key".to_string())),
     )
     .unwrap();

@@ -81,8 +81,8 @@ pub fn verify_rsa_signature(
     // according to https://datatracker.ietf.org/doc/html/rfc7518#section-6.3.1.1
     // `n` is always unsigned (hence has sign plus)
 
-    let n_bigint = rsa::BigUint::from_bytes_be(n.deref());
-    let e_bigint = rsa::BigUint::from_bytes_be(e.deref());
+    let n_bigint = rsa::BoxedUint::from_be_slice_vartime(n.deref());
+    let e_bigint = rsa::BoxedUint::from_be_slice_vartime(e.deref());
     let public_key = rsa::RsaPublicKey::new(n_bigint, e_bigint)
         .map_err(|e| SignatureVerificationError::InvalidKey(e.to_string()))?;
 
@@ -190,8 +190,8 @@ mod tests {
     fn test_leading_zeros_are_parsed_correctly() {
         // The message we signed
         let msg = "THIS IS A SIGNATURE TEST";
-        let signature = BASE64_URL_SAFE_NO_PAD.decode("bg0ohqKwYHAiODeG6qkJ-6IhodN7LGPxAh4hbWeIoBdSXrXMt8Ft8U0BV7vANPvF56h20XB9C0021x2kt7iAbMgPNcZ7LCuXMPPq04DrBpMHafH5BXBwnyDKJKrzDm5sfr6OgEkcxSLHaSJ6gTWQ3waPt6_SeH2-Fi74rg13MHyX-0iqz7bZveoBbGIs5yQCwvXgrDS9zW5LUwUHozHfE6FuSi_Z92ioXeu7FHHDg1KFfg3hs8ZLx4wAX15Vw2GCQOzvyNdbItxXRLnrN1NPqxFquVNo5RGlx6ihR1Jfe7y_n0NSR2q2TuU4cIwR0LRwEaANy5SDqtleQPrTEn8nGQ").unwrap();
-        // RSA pub key with leading 0
+        let signature = BASE64_URL_SAFE_NO_PAD.decode("XxaCBk7XK1BLW-n-SNFqiVXaL3_Aid80VWspX8dPcDTSe59qq6-miOAO1B-FGXzt6v8bseMxuagjZ0JSy3Z-NvEZMHIxCiP-9HZK2SKTTA4ediOd4HzNjICeWftGL1bYLoXHOnhZ0ZjkpNKur69Sz76Uf61IfAKB2sWwXLvop5oLhuAm5THQMguSrcQ-rcOlmWjNvl1eMiBPSrhxCrsUsu0QE5RcgmUbKq85UT5eX0R6fIQeta4w-lHvqJqCymCsMpxbCE-kvHN1ckjntJqmWxDqVTbgbJqxXDFBqSNnZZpetAdIR4opxYWvcxJwaIlopGedmT7l7s7AOT3nFVQ").unwrap();
+        // RSA public key (2032-bit modulus) whose `n` is zero-padded to 256 bytes
         let key : CoreJsonWebKey = serde_json::from_value(serde_json::json!(
             {
             "kty": "RSA",
@@ -199,7 +199,7 @@ mod tests {
             "use": "sig",
             "kid": "TEST_KEY_ID",
             "alg": "RS256",
-            "n": "AN0M6Y760b9Ok2PxDOps1TgSmiOaR9mLIfUHtZ_o-6JypOckGcl1CxrteyokOb3WyDsfIAN9fFNrycv5YoLKO7sh0IcfzNEXFgzK84HTBcGuqhN8NV98Z6N9EryUrgJYsJeVoPYm0MzkDe4NyWHhnq-9OyNCQzVELH0NhhViQqRyM92OPrJcQlk8s3ZvcgRmkd-rEtRua8SbS3GEvfvgweVy5-qcJCGoziKfx-IteMOm6yKoHvqisKb91N-qw_kSS4YQUx-DZVDo2g24F7VIbcYzJGUOU674HUF1j-wJyXzG3VV8lAXD8hABs5Lh87gr8_hIZD5gbYBJRObJk9XZbfk"
+            "n": "AADKbjFZkhSGtn89Cj5QdWpbclLeEklfP1TRbuWVvE0KTYSSy_8_S0YvyKADYZypwbIZpcmMJ133yCUq4qnVA1C3O4JUVeCKGlHr0PdF0FSmkZlzL2bFS5ZpJILFcl_qxmDGelz3K4ZYpqwscIKufgYK3K5icXl3Tcxor6FTnJPudzlp2m8Ncmge4gfoBI3DwWLJxrp3P1QhFh4Y2P6skFGlQlTP1xYsBxSZHSUDAFrVbh358ycFIbymZKAU4HLZS0O73xKIAiOov_F8t9H5u7xrvlQ5uc3fTVGnqbtTwCkVCfVgl87lPFySbUnmKI01m9rRp4Y-WLloYLjn_e9eyQ"
             }
         )).unwrap();
 

@@ -176,7 +176,7 @@ impl JsonWebKey for CoreJsonWebKey {
         message: &[u8],
         signature: &[u8],
     ) -> Result<(), SignatureVerificationError> {
-        use hmac::Mac;
+        use hmac::{KeyInit, Mac};
 
         check_key_compatibility(self, signature_alg)
             .map_err(|e| SignatureVerificationError::InvalidKey(e.to_owned()))?;
@@ -229,7 +229,7 @@ impl JsonWebKey for CoreJsonWebKey {
                 };
                 crypto::verify_rsa_signature(
                     self,
-                    rsa::Pss::new::<sha2::Sha256>(),
+                    rsa::Pss::<sha2::Sha256>::new(),
                     message,
                     signature,
                 )
@@ -242,7 +242,7 @@ impl JsonWebKey for CoreJsonWebKey {
                 };
                 crypto::verify_rsa_signature(
                     self,
-                    rsa::Pss::new::<sha2::Sha384>(),
+                    rsa::Pss::<sha2::Sha384>::new(),
                     message,
                     signature,
                 )
@@ -255,7 +255,7 @@ impl JsonWebKey for CoreJsonWebKey {
                 };
                 crypto::verify_rsa_signature(
                     self,
-                    rsa::Pss::new::<sha2::Sha512>(),
+                    rsa::Pss::<sha2::Sha512>::new(),
                     message,
                     signature,
                 )
@@ -272,7 +272,7 @@ impl JsonWebKey for CoreJsonWebKey {
                     SignatureVerificationError::Other(format!("Could not create key: {e}"))
                 })?;
                 mac.update(message);
-                mac.verify(signature.into())
+                mac.verify_slice(signature)
                     .map_err(|_| SignatureVerificationError::CryptoError("bad HMAC".to_string()))
             }
             CoreJwsSigningAlgorithm::HmacSha384 => {
@@ -287,7 +287,7 @@ impl JsonWebKey for CoreJsonWebKey {
                     SignatureVerificationError::Other(format!("Could not create key: {e}"))
                 })?;
                 mac.update(message);
-                mac.verify(signature.into())
+                mac.verify_slice(signature)
                     .map_err(|_| SignatureVerificationError::CryptoError("bad HMAC".to_string()))
             }
             CoreJwsSigningAlgorithm::HmacSha512 => {
@@ -302,7 +302,7 @@ impl JsonWebKey for CoreJsonWebKey {
                     SignatureVerificationError::Other(format!("Could not create key: {e}"))
                 })?;
                 mac.update(message);
-                mac.verify(signature.into())
+                mac.verify_slice(signature)
                     .map_err(|_| SignatureVerificationError::CryptoError("bad HMAC".to_string()))
             }
             CoreJwsSigningAlgorithm::EcdsaP256Sha256 => {
@@ -413,7 +413,7 @@ impl PrivateSigningKey for CoreHmacKey {
         signature_alg: &CoreJwsSigningAlgorithm,
         message: &[u8],
     ) -> Result<Vec<u8>, SigningError> {
-        use hmac::Mac;
+        use hmac::{KeyInit, Mac};
         match *signature_alg {
             CoreJwsSigningAlgorithm::HmacSha256 => {
                 let mut mac = hmac::Hmac::<sha2::Sha256>::new_from_slice(&self.secret)
@@ -529,9 +529,9 @@ impl PrivateSigningKey for CoreEdDsaPrivateSigningKey {
 
 /// Trait used to allow testing with an alternative RNG.
 /// Clone is necessary to get a mutable version of the RNG.
-pub(crate) trait RngClone: dyn_clone::DynClone + rand::RngCore + rand::CryptoRng {}
+pub(crate) trait RngClone: dyn_clone::DynClone + rand::CryptoRng {}
 dyn_clone::clone_trait_object!(RngClone);
-impl<T> RngClone for T where T: rand::RngCore + rand::CryptoRng + Clone {}
+impl<T> RngClone for T where T: rand::CryptoRng + Clone {}
 
 /// RSA private key.
 ///
@@ -545,7 +545,11 @@ pub struct CoreRsaPrivateSigningKey {
 impl CoreRsaPrivateSigningKey {
     /// Converts an RSA private key (in PEM format) to a JWK representing its public key.
     pub fn from_pem(pem: &str, kid: Option<JsonWebKeyId>) -> Result<Self, String> {
-        Self::from_pem_internal(pem, Box::new(rand::rngs::OsRng), kid)
+        Self::from_pem_internal(
+            pem,
+            Box::new(rsa::rand_core::UnwrapErr(rand::rngs::SysRng)),
+            kid,
+        )
     }
 
     pub(crate) fn from_pem_internal(
@@ -613,7 +617,7 @@ impl PrivateSigningKey for CoreRsaPrivateSigningKey {
                 self.key_pair
                     .sign_with_rng(
                         &mut dyn_clone::clone_box(&self.rng),
-                        rsa::Pss::new_with_salt::<sha2::Sha256>(hash.len()),
+                        rsa::Pss::<sha2::Sha256>::new_with_salt(hash.len()),
                         &hash,
                     )
                     .map_err(|_| SigningError::CryptoError)
@@ -626,7 +630,7 @@ impl PrivateSigningKey for CoreRsaPrivateSigningKey {
                 self.key_pair
                     .sign_with_rng(
                         &mut dyn_clone::clone_box(&self.rng),
-                        rsa::Pss::new_with_salt::<sha2::Sha384>(hash.len()),
+                        rsa::Pss::<sha2::Sha384>::new_with_salt(hash.len()),
                         &hash,
                     )
                     .map_err(|_| SigningError::CryptoError)
@@ -639,7 +643,7 @@ impl PrivateSigningKey for CoreRsaPrivateSigningKey {
                 self.key_pair
                     .sign_with_rng(
                         &mut dyn_clone::clone_box(&self.rng),
-                        rsa::Pss::new_with_salt::<sha2::Sha512>(hash.len()),
+                        rsa::Pss::<sha2::Sha512>::new_with_salt(hash.len()),
                         &hash,
                     )
                     .map_err(|_| SigningError::CryptoError)
@@ -660,8 +664,12 @@ impl PrivateSigningKey for CoreRsaPrivateSigningKey {
             kty: CoreJsonWebKeyType::RSA,
             use_: Some(CoreJsonWebKeyUse::Signature),
             kid: self.kid.clone(),
-            n: Some(Base64UrlEncodedBytes::new(public_key.n().to_bytes_be())),
-            e: Some(Base64UrlEncodedBytes::new(public_key.e().to_bytes_be())),
+            n: Some(Base64UrlEncodedBytes::new(
+                public_key.n().to_be_bytes_trimmed_vartime().to_vec(),
+            )),
+            e: Some(Base64UrlEncodedBytes::new(
+                public_key.e().to_be_bytes_trimmed_vartime().to_vec(),
+            )),
             k: None,
             crv: None,
             x: None,
